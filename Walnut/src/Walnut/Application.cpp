@@ -274,7 +274,18 @@ static void FrameRender(ImGui_ImplVulkanH_Window* wd, ImDrawData* draw_data)
 {
 	VkResult err;
 
-	VkSemaphore image_acquired_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].ImageAcquiredSemaphore;
+        ImGui_ImplVulkanH_Frame *fd = &wd->Frames[wd->FrameIndex];
+        {
+          err = vkWaitForFences(
+              g_Device, 1, &fd->Fence, VK_TRUE,
+              UINT64_MAX); // wait indefinitely instead of periodically checking
+          check_vk_result(err);
+
+          err = vkResetFences(g_Device, 1, &fd->Fence);
+          check_vk_result(err);
+        }
+
+        VkSemaphore image_acquired_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].ImageAcquiredSemaphore;
 	VkSemaphore render_complete_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].RenderCompleteSemaphore;
 	err = vkAcquireNextImageKHR(g_Device, wd->Swapchain, UINT64_MAX, image_acquired_semaphore, VK_NULL_HANDLE, &wd->FrameIndex);
 	if (err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR)
@@ -286,22 +297,13 @@ static void FrameRender(ImGui_ImplVulkanH_Window* wd, ImDrawData* draw_data)
 
 	s_CurrentFrameIndex = (s_CurrentFrameIndex + 1) % g_MainWindowData.ImageCount;
 
-	ImGui_ImplVulkanH_Frame* fd = &wd->Frames[wd->FrameIndex];
-	{
-		err = vkWaitForFences(g_Device, 1, &fd->Fence, VK_TRUE, UINT64_MAX);    // wait indefinitely instead of periodically checking
-		check_vk_result(err);
-
-		err = vkResetFences(g_Device, 1, &fd->Fence);
-		check_vk_result(err);
-	}
-	
-	{
-		// Free resources in queue
-		for (auto& func : s_ResourceFreeQueue[s_CurrentFrameIndex])
-			func();
-		s_ResourceFreeQueue[s_CurrentFrameIndex].clear();
-	}
-	{
+        {
+          // Free resources in queue
+          for (auto &func : s_ResourceFreeQueue[s_CurrentFrameIndex])
+            func();
+          s_ResourceFreeQueue[s_CurrentFrameIndex].clear();
+        }
+        {
 		// Free command buffers allocated by Application::GetCommandBuffer
 		// These use g_MainWindowData.FrameIndex and not s_CurrentFrameIndex because they're tied to the swapchain image index
 		auto& allocatedCommandBuffers = s_AllocatedCommandBuffers[wd->FrameIndex];
